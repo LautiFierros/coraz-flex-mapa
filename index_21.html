@@ -1,0 +1,756 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>CORAZ · Mapa Flex</title>
+<meta name="robots" content="noindex">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M16 2C10 2 5 7 5 13c0 8 11 17 11 17s11-9 11-17C27 7 22 2 16 2z' fill='%23e8891a'/%3E%3Ccircle cx='16' cy='13' r='4' fill='%2314120f'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/d3-delaunay@6/dist/d3-delaunay.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/polygon-clipping@0.15.7/dist/polygon-clipping.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+:root{
+  --bg:#14120f; --panel:#1d1a15; --panel-2:#242019; --line:#3a3226; --text:#f2ede2; --text-dim:#a89e8c;
+  --amber:#e8891a; --amber-dim:#8a5518; --ok:#4a9d5f; --warn:#d4a12a; --bad:#c14b3a; --info:#4a8a9d;
+  --h0:#fde3c8; --h1:#fbbf86; --h2:#f79a4b; --h3:#ea7419; --h4:#c2560a; --h5:#8a3a05;
+  --r:10px; --mono:"SF Mono","Consolas",monospace;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--text);font-family:-apple-system,"Segoe UI",Roboto,sans-serif;font-size:14px}
+button,input,select{font-family:inherit;font-size:inherit;color:inherit}
+.hidden{display:none!important}
+
+/* ---------- gate ---------- */
+#gate{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;padding:16px;z-index:2000;background:var(--bg)}
+.gate-card{width:100%;max-width:360px;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:24px}
+.gate-card h1{margin:0 0 4px;font-size:20px}
+.gate-card p{margin:0 0 18px;color:var(--text-dim)}
+.gate-card input{width:100%;padding:11px 12px;margin-bottom:10px;background:var(--bg);border:1px solid var(--line);border-radius:8px}
+.btn{background:var(--amber);color:#1b1206;border:0;border-radius:8px;padding:10px 14px;font-weight:600;cursor:pointer}
+.btn:disabled{opacity:.6;cursor:default}
+.btn.ghost{background:transparent;color:var(--text);border:1px solid var(--line);font-weight:500}
+.btn.sm{padding:6px 10px;font-size:13px}
+.err{color:var(--bad);min-height:18px;font-size:13px}
+
+/* ---------- layout ---------- */
+#app{display:grid;grid-template-rows:auto 1fr;height:100dvh}
+header{display:flex;align-items:center;gap:12px;padding:10px 14px;border-bottom:1px solid var(--line);background:var(--panel)}
+header .brand{display:flex;align-items:center;gap:10px;font-weight:700;letter-spacing:.2px}
+header .brand .dot{width:10px;height:10px;border-radius:50%;background:var(--amber);box-shadow:0 0 0 4px rgba(232,137,26,.18)}
+header .kpis{display:flex;gap:18px;margin-left:12px;flex-wrap:wrap}
+.kpi{display:flex;flex-direction:column;line-height:1.15}
+.kpi b{font-size:16px;font-variant-numeric:tabular-nums}
+.kpi span{font-size:11px;color:var(--text-dim);text-transform:uppercase;letter-spacing:.4px}
+header .right{margin-left:auto;display:flex;gap:8px;align-items:center}
+.who{color:var(--text-dim);font-size:12px}
+select.ctl,input.ctl{background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:7px 9px}
+
+main{display:grid;grid-template-columns:340px 1fr 360px;min-height:0}
+aside{background:var(--panel);display:flex;flex-direction:column;min-height:0}
+aside.left{border-right:1px solid var(--line)}
+aside.right{border-left:1px solid var(--line)}
+.aside-head{padding:12px 14px;border-bottom:1px solid var(--line);display:flex;flex-direction:column;gap:8px}
+.aside-head h2{margin:0;font-size:13px;text-transform:uppercase;letter-spacing:.6px;color:var(--text-dim);font-weight:600}
+.row{display:flex;gap:8px;align-items:center}
+.row > *{min-width:0}
+.scroll{overflow:auto;flex:1;min-height:0}
+
+/* ventas list */
+.venta{padding:10px 14px;border-bottom:1px solid var(--line);cursor:pointer;display:grid;grid-template-columns:1fr auto;gap:2px 10px}
+.venta:hover,.venta.sel{background:var(--panel-2)}
+.venta .lugar{font-weight:600}
+.venta .meta{color:var(--text-dim);font-size:12px;grid-column:1/-1;display:flex;gap:8px;flex-wrap:wrap}
+.venta .monto{font-variant-numeric:tabular-nums;text-align:right;font-weight:600}
+.venta .tar{font-variant-numeric:tabular-nums;text-align:right;color:var(--text-dim);font-size:12px}
+.badge{display:inline-block;border-radius:999px;padding:1px 8px;font-size:11px;border:1px solid var(--line);color:var(--text-dim);white-space:nowrap}
+.badge.ok{border-color:rgba(74,157,95,.5);color:#8fd1a0}
+.badge.warn{border-color:rgba(212,161,42,.5);color:#e9c46a}
+.badge.bad{border-color:rgba(193,75,58,.55);color:#e58b7d}
+.badge.info{border-color:rgba(74,138,157,.55);color:#8cc3d3}
+.badge.zb{border-color:var(--amber-dim);color:var(--amber)}
+.empty{padding:24px 14px;color:var(--text-dim);text-align:center}
+
+/* map */
+#mapwrap{position:relative;min-height:0}
+#map{position:absolute;inset:0;background:#0f0d0b}
+.leaflet-container{font-family:inherit}
+.legend{position:absolute;left:12px;bottom:12px;z-index:500;background:rgba(29,26,21,.92);border:1px solid var(--line);border-radius:var(--r);padding:10px 12px;min-width:200px}
+.legend .t{font-size:11px;color:var(--text-dim);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px}
+.legend .scale{display:flex;height:10px;border-radius:5px;overflow:hidden}
+.legend .scale i{flex:1}
+.legend .lbl{display:flex;justify-content:space-between;font-size:11px;color:var(--text-dim);margin-top:4px;font-variant-numeric:tabular-nums}
+.mapctl{position:absolute;right:12px;top:12px;z-index:500;display:flex;flex-direction:column;gap:6px;background:rgba(29,26,21,.92);border:1px solid var(--line);border-radius:var(--r);padding:8px}
+.seg{display:flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.seg button{background:transparent;border:0;padding:6px 10px;cursor:pointer;color:var(--text-dim)}
+.seg button.on{background:var(--amber);color:#1b1206;font-weight:600}
+.chk{display:flex;gap:6px;align-items:center;font-size:12px;color:var(--text-dim);cursor:pointer}
+.leaflet-tooltip.tt{background:rgba(20,18,15,.96);color:var(--text);border:1px solid var(--line);border-radius:8px;box-shadow:none;padding:8px 10px}
+.leaflet-tooltip.tt:before{display:none}
+.tt b{color:var(--amber)}
+.tt .s{color:var(--text-dim);font-size:12px}
+
+/* right: tabs */
+.tabs{display:flex;border-bottom:1px solid var(--line)}
+.tabs button{flex:1;background:transparent;border:0;border-bottom:2px solid transparent;padding:11px 8px;cursor:pointer;color:var(--text-dim);font-weight:600}
+.tabs button.on{color:var(--text);border-bottom-color:var(--amber)}
+.tcard{margin:12px 14px;padding:12px;border:1px solid var(--line);border-radius:var(--r);background:var(--panel-2)}
+.tcard .h{display:flex;align-items:baseline;justify-content:space-between}
+.tcard .h b{font-size:15px}
+.tcard .tar{font-size:20px;font-weight:700;font-variant-numeric:tabular-nums;color:var(--amber)}
+.tcard .sub{color:var(--text-dim);font-size:12px;margin-top:4px;display:flex;justify-content:space-between;gap:8px;font-variant-numeric:tabular-nums}
+.tcard .bar{height:6px;border-radius:3px;background:var(--line);margin-top:8px;overflow:hidden}
+.tcard .bar i{display:block;height:100%;background:var(--amber)}
+.note{margin:4px 14px 14px;color:var(--text-dim);font-size:12px;line-height:1.45}
+table.mini{width:calc(100% - 28px);margin:0 14px 14px;border-collapse:collapse;font-size:12px}
+table.mini th,table.mini td{padding:6px 4px;border-bottom:1px solid var(--line);text-align:left}
+table.mini td.n,table.mini th.n{text-align:right;font-variant-numeric:tabular-nums}
+.neg{color:#e58b7d}.pos{color:#8fd1a0}
+
+/* barrios tree */
+details.g{border-bottom:1px solid var(--line)}
+details.g > summary{list-style:none;cursor:pointer;padding:10px 14px;display:flex;align-items:center;gap:8px}
+details.g > summary::-webkit-details-marker{display:none}
+details.g > summary .chev{transition:transform .15s;color:var(--text-dim);width:10px}
+details.g[open] > summary .chev{transform:rotate(90deg)}
+details.g > summary .nm{font-weight:700}
+details.g > summary .ct{margin-left:auto;color:var(--text-dim);font-variant-numeric:tabular-nums;font-size:12px}
+details.m{margin:0 0 0 14px;border-left:1px solid var(--line)}
+details.m > summary{list-style:none;cursor:pointer;padding:7px 12px;display:flex;gap:8px;align-items:center}
+details.m > summary::-webkit-details-marker{display:none}
+details.m > summary .nm{font-weight:600}
+details.m > summary .ct{margin-left:auto;color:var(--text-dim);font-size:12px;font-variant-numeric:tabular-nums}
+ul.barrios{list-style:none;margin:0;padding:0 0 6px 26px}
+ul.barrios li{display:flex;justify-content:space-between;gap:8px;padding:3px 12px 3px 0;cursor:pointer;color:var(--text-dim)}
+ul.barrios li:hover{color:var(--text)}
+ul.barrios li.has{color:var(--text)}
+ul.barrios li .c{font-variant-numeric:tabular-nums;font-size:12px;min-width:22px;text-align:center;border-radius:6px}
+.sw{display:inline-block;width:10px;height:10px;border-radius:3px;flex:none}
+
+/* modal */
+.modal{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:3000;display:flex;align-items:center;justify-content:center;padding:16px}
+.modal .card{width:100%;max-width:560px;max-height:90dvh;overflow:auto;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px}
+.modal h3{margin:0 0 6px}
+.modal .acc{display:flex;gap:10px;align-items:center;padding:9px 0;border-bottom:1px solid var(--line)}
+.modal .acc .n{font-weight:600}
+.modal .acc .s{color:var(--text-dim);font-size:12px}
+.linkbox{word-break:break-all;background:var(--bg);border:1px dashed var(--amber-dim);border-radius:8px;padding:10px;font-family:var(--mono);font-size:12px;margin:8px 0}
+.toast{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);background:var(--panel-2);border:1px solid var(--line);padding:10px 14px;border-radius:10px;z-index:4000}
+
+/* mobile */
+.mtabs{display:none}
+@media (max-width: 980px){
+  main{grid-template-columns:1fr;grid-template-rows:1fr}
+  aside{position:absolute;inset:auto 0 52px 0;height:58dvh;z-index:900;border:0;border-top:1px solid var(--line);border-radius:14px 14px 0 0;box-shadow:0 -10px 30px rgba(0,0,0,.4)}
+  aside.left,aside.right{display:none}
+  aside.mshow{display:flex}
+  #mapwrap{position:relative}
+  .mtabs{display:flex;position:fixed;left:0;right:0;bottom:0;height:52px;background:var(--panel);border-top:1px solid var(--line);z-index:950}
+  .mtabs button{flex:1;background:transparent;border:0;color:var(--text-dim);font-weight:600}
+  .mtabs button.on{color:var(--amber)}
+  header .kpis{display:none}
+  .legend{bottom:64px}
+  #app{grid-template-rows:auto 1fr 52px}
+}
+</style>
+</head>
+<body>
+
+<div id="gate" class="hidden">
+  <div class="gate-card">
+    <h1>Mapa Flex · CORAZ</h1>
+    <p id="gateMsg">Ingresá con tu usuario de CORAZ.</p>
+    <div id="gateForm">
+      <input id="gateEmail" type="email" placeholder="Email" autocomplete="username">
+      <input id="gatePass" type="password" placeholder="Contraseña" autocomplete="current-password">
+      <div class="err" id="gateError"></div>
+      <button class="btn" id="gateBtn" style="width:100%">Ingresar</button>
+    </div>
+  </div>
+</div>
+
+<div id="app" class="hidden">
+  <header>
+    <div class="brand"><span class="dot"></span>Mapa Flex</div>
+    <div class="kpis" id="kpis"></div>
+    <div class="right">
+      <select class="ctl" id="periodo" title="Período">
+        <option value="todo">Histórico</option>
+        <option value="quincena">Quincena actual</option>
+        <option value="quincena_ant">Quincena anterior</option>
+        <option value="mes">Mes en curso</option>
+        <option value="7d">Últimos 7 días</option>
+      </select>
+      <span class="who" id="who"></span>
+      <button class="btn ghost sm hidden" id="btnAccesos">Accesos</button>
+      <button class="btn ghost sm" id="btnRefresh" title="Actualizar">↻</button>
+      <button class="btn ghost sm hidden" id="btnSalir">Salir</button>
+    </div>
+  </header>
+
+  <main>
+    <aside class="left" id="pVentas">
+      <div class="aside-head">
+        <h2>Ventas Flex <span id="ventasCount"></span></h2>
+        <div class="row">
+          <input class="ctl" id="q" placeholder="Buscar barrio, orden, partido…" style="flex:1">
+          <select class="ctl" id="fEstado">
+            <option value="">Todas</option>
+            <option value="activas">No canceladas</option>
+            <option value="delivered">Entregadas</option>
+            <option value="shipped">En camino</option>
+            <option value="ready_to_ship">Por despachar</option>
+            <option value="problema">No entregadas / devueltas</option>
+            <option value="cancelled">Canceladas</option>
+          </select>
+        </div>
+      </div>
+      <div class="scroll" id="ventas"></div>
+    </aside>
+
+    <section id="mapwrap">
+      <div id="map"></div>
+      <div class="mapctl">
+        <div class="seg" id="segNivel">
+          <button data-v="barrio" class="on">Barrio</button>
+          <button data-v="zona">Zona ML</button>
+          <button data-v="brown">Zona Brown</button>
+        </div>
+        <label class="chk"><input type="checkbox" id="chkPuntos"> Puntos de entrega</label>
+        <label class="chk"><input type="checkbox" id="chkBordes" checked> Bordes de zona</label>
+      </div>
+      <div class="legend" id="legend"></div>
+    </section>
+
+    <aside class="right" id="pInfo">
+      <div class="tabs">
+        <button class="on" data-tab="tarifas">Costos Brown</button>
+        <button data-tab="barrios">Barrios</button>
+      </div>
+      <div class="scroll" id="tabTarifas"></div>
+      <div class="scroll hidden" id="tabBarrios">
+        <div class="aside-head">
+          <div class="row">
+            <input class="ctl" id="qb" placeholder="Buscar barrio…" style="flex:1">
+            <select class="ctl" id="agrupar">
+              <option value="brown">Por zona Brown</option>
+              <option value="ml">Por zona ML</option>
+            </select>
+          </div>
+        </div>
+        <div id="arbol"></div>
+      </div>
+    </aside>
+  </main>
+
+  <nav class="mtabs" id="mtabs">
+    <button data-m="pVentas">Ventas</button>
+    <button data-m="" class="on">Mapa</button>
+    <button data-m="pInfo">Zonas</button>
+  </nav>
+</div>
+
+<div class="modal hidden" id="modalAccesos">
+  <div class="card">
+    <div class="row" style="justify-content:space-between"><h3>Accesos de logística</h3><button class="btn ghost sm" id="cerrarAccesos">Cerrar</button></div>
+    <p class="note" style="margin:0 0 12px">Cada link ve el mapa, la lista de envíos (fecha, orden, barrio, zona, estado) y las tarifas Brown. <b>No ve montos de venta, SKUs ni precios de ML.</b> Se puede revocar en cualquier momento.</p>
+    <div class="row">
+      <input class="ctl" id="accNombre" placeholder="Nombre (ej. Hernán · Brown)" style="flex:1">
+      <button class="btn sm" id="accCrear">Crear link</button>
+    </div>
+    <div id="accNuevo"></div>
+    <div id="accLista" style="margin-top:10px"></div>
+  </div>
+</div>
+
+<script>
+// ============================================================
+// coraz-flex-mapa · 2026-10-22
+// Datos: Edge Function flex-mapa-data (Supabase kvewsxrfogosjwehookj).
+//  - Admin: login Supabase (usuario activo de app_usuarios) → datos completos.
+//  - Logística: link ?t=<token> → sin montos/SKU/precios ML.
+// Zonas: polígonos de cobertura Flex de ML (flex_zonas_ml). Barrios: padrón Georef/BAHRA (flex_localidades).
+// Celdas de barrio = Voronoi de los centroides recortado por cada zona ML (aproximado en bordes internos).
+// ============================================================
+const SUPABASE_URL = "https://kvewsxrfogosjwehookj.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imt2ZXdzeHJmb2dvc2p3ZWhvb2tqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODU3OTA2OTksImV4cCI6MjEwMTM2NjY5OX0.6oyDPFG_8hAAULXCUn6uO7C-abxMSOxxMFFJ_xBFZHY";
+const FN = SUPABASE_URL + "/functions/v1/flex-mapa-data";
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+const $ = (id) => document.getElementById(id);
+const TOKEN = new URLSearchParams(location.search).get("t");
+
+const HEAT = ["#fde3c8","#fbbf86","#f79a4b","#ea7419","#c2560a","#8a3a05"];
+const ESTADOS = {
+  delivered:["Entregado","ok"], shipped:["En camino","info"], ready_to_ship:["Por despachar","warn"],
+  handling:["Preparando","warn"], pending:["Pendiente","warn"], not_delivered:["No entregado","bad"],
+  returned:["Devuelto","bad"], cancelled:["Cancelado","bad"]
+};
+const zbLabel = (z) => !z ? "Sin zona" : z === "CABA" ? "CABA" : z.replace("Esfera", "Zona");
+const ZB_ORDEN = ["CABA","Esfera 1","Esfera 2","Esfera 3"];
+const fmt$ = (n) => n == null ? "—" : "$" + Math.round(Number(n)).toLocaleString("es-AR");
+const fmtN = (n) => Number(n || 0).toLocaleString("es-AR");
+const norm = (s) => (s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
+
+let STATE = { payload: null, viewer: null, accesos: [], full: false };
+let map, layerCells, layerZonas, layerPuntos, layerBrown;
+let cellIndex = {};     // loc id -> leaflet layer
+let zonaIndex = {};     // ml_id -> leaflet layer
+let nivel = "barrio";
+let selOrden = null;
+
+// ---------------- data ----------------
+async function fetchJSON(url, opts = {}, ms = 25000) {
+  const ctrl = new AbortController(); const tm = setTimeout(() => ctrl.abort(), ms);
+  try {
+    const r = await fetch(url, { ...opts, signal: ctrl.signal });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok || j.ok === false) { const e = new Error(j.error || ("HTTP " + r.status)); e.status = r.status; throw e; }
+    return j;
+  } catch (e) {
+    if (e.name === "AbortError") throw new Error("El servidor tardó demasiado. Probá de nuevo.");
+    throw e;
+  } finally { clearTimeout(tm); }
+}
+async function authHeaders() {
+  const { data } = await sb.auth.getSession();
+  const t = data.session?.access_token;
+  return t ? { Authorization: "Bearer " + t } : {};
+}
+async function cargar() {
+  $("btnRefresh").disabled = true;
+  try {
+    const j = TOKEN
+      ? await fetchJSON(FN + "?t=" + encodeURIComponent(TOKEN))
+      : await fetchJSON(FN, { headers: await authHeaders() });
+    STATE.payload = j.data; STATE.viewer = j.viewer; STATE.accesos = j.accesos || [];
+    STATE.full = j.viewer?.tipo === "admin";
+    $("who").textContent = STATE.full ? (j.viewer.email || "") : ("Acceso: " + (j.viewer?.nombre || "logística"));
+    $("btnAccesos").classList.toggle("hidden", !STATE.full);
+    $("btnSalir").classList.toggle("hidden", !!TOKEN);
+    if (!map) initMap();
+    construirGeometria();
+    render();
+  } catch (e) {
+    if (e.status === 401) { mostrarGate(TOKEN ? "Este link no es válido o fue revocado. Pedile uno nuevo a CORAZ." : null); return; }
+    toast("No se pudieron cargar los datos: " + e.message);
+  } finally { $("btnRefresh").disabled = false; }
+}
+
+// ---------------- filtros ----------------
+function rangoPeriodo() {
+  const p = $("periodo").value; const now = new Date();
+  const y = now.getFullYear(), m = now.getMonth(), d = now.getDate();
+  if (p === "7d") return [new Date(now.getTime() - 7 * 864e5), null];
+  if (p === "mes") return [new Date(y, m, 1), null];
+  if (p === "quincena") return d <= 15 ? [new Date(y, m, 1), new Date(y, m, 16)] : [new Date(y, m, 16), new Date(y, m + 1, 1)];
+  if (p === "quincena_ant") return d <= 15 ? [new Date(y, m - 1, 16), new Date(y, m, 1)] : [new Date(y, m, 1), new Date(y, m, 16)];
+  return [null, null];
+}
+function enviosPeriodo() {
+  const [a, b] = rangoPeriodo();
+  return (STATE.payload?.envios || []).filter((e) => {
+    const f = new Date(e.fecha);
+    return (!a || f >= a) && (!b || f < b);
+  });
+}
+const cuenta = (e) => e.estado !== "cancelled";   // un envío cancelado antes de salir no suma al mapa
+
+// ---------------- mapa ----------------
+function initMap() {
+  map = L.map("map", { zoomControl: true, preferCanvas: false, attributionControl: true }).setView([-34.66, -58.53], 10);
+  L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
+    maxZoom: 18, subdomains: "abcd",
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> &copy; <a href="https://carto.com/">CARTO</a> · Zonas: Mercado Libre Flex · Barrios: Georef AR'
+  }).addTo(map);
+  map.createPane("cells"); map.getPane("cells").style.zIndex = 410;
+  map.createPane("borders"); map.getPane("borders").style.zIndex = 420; map.getPane("borders").style.pointerEvents = "none";
+  map.createPane("pts"); map.getPane("pts").style.zIndex = 430;
+  layerCells = L.layerGroup().addTo(map);
+  layerZonas = L.layerGroup().addTo(map);
+  layerPuntos = L.layerGroup();
+  layerBrown = L.layerGroup();
+}
+
+let GEO = null; // {cells: {locId: [[lat,lng]...] multipolygon}, zonas: {mlId: ring latlng}}
+function construirGeometria() {
+  if (GEO) return;
+  const P = STATE.payload; const K = 0.82;
+  const zonas = {}; const cells = {};
+  for (const z of P.zonas) zonas[z.id] = z;
+  const locsPorZona = {};
+  for (const l of P.localidades) (locsPorZona[l.z] ||= []).push(l);
+  for (const z of P.zonas) {
+    const ring = z.geom[0];                       // [[lon,lat],...]
+    const locs = locsPorZona[z.id] || [];
+    if (locs.length === 0) continue;
+    if (locs.length === 1) { cells[locs[0].id] = [[ring]]; continue; }
+    let minx = Infinity, miny = Infinity, maxx = -Infinity, maxy = -Infinity;
+    for (const [x, y] of ring) { minx = Math.min(minx, x * K); maxx = Math.max(maxx, x * K); miny = Math.min(miny, y); maxy = Math.max(maxy, y); }
+    const pad = 0.05;
+    const del = d3.Delaunay.from(locs, (l) => l.lo * K, (l) => l.la);
+    const vor = del.voronoi([minx - pad, miny - pad, maxx + pad, maxy + pad]);
+    locs.forEach((l, i) => {
+      const poly = vor.cellPolygon(i);
+      if (!poly) return;
+      const cell = poly.map(([x, y]) => [x / K, y]);
+      try {
+        const inter = polygonClipping.intersection([ring], [cell]);
+        if (inter && inter.length) cells[l.id] = inter;
+      } catch (e) { /* geometría degenerada: se omite la celda */ }
+    });
+  }
+  GEO = { cells, zonas };
+}
+const toLatLngs = (mp) => mp.map((poly) => poly.map((ring) => ring.map(([x, y]) => [y, x])));
+
+function escala(max) {
+  // cortes adaptativos: 1 envío ya pinta el tono más claro
+  if (max <= 6) return Array.from({ length: max }, (_, i) => i + 1);
+  const out = []; for (let i = 1; i <= 6; i++) out.push(Math.max(i, Math.round(Math.pow(max, i / 6))));
+  return [...new Set(out)];
+}
+function colorPara(n, cortes) {
+  if (!n) return null;
+  let idx = cortes.findIndex((c) => n <= c); if (idx === -1) idx = cortes.length - 1;
+  const t = cortes.length === 1 ? 5 : Math.round((idx / (cortes.length - 1)) * 5);
+  return HEAT[t];
+}
+
+function render() {
+  const env = enviosPeriodo();
+  renderKpis(env);
+  renderMapa(env);
+  renderVentas(env);
+  renderTarifas(env);
+  renderArbol(env);
+}
+
+function renderMapa(env) {
+  layerCells.clearLayers(); layerZonas.clearLayers(); layerPuntos.clearLayers(); layerBrown.clearLayers();
+  cellIndex = {}; zonaIndex = {};
+  const P = STATE.payload;
+  const porLoc = {}, porZona = {}, porBrown = {};
+  for (const e of env) if (cuenta(e)) {
+    if (e.loc) porLoc[e.loc] = (porLoc[e.loc] || 0) + 1;
+    if (e.zona_ml) porZona[e.zona_ml] = (porZona[e.zona_ml] || 0) + 1;
+    if (e.zona_brown) porBrown[e.zona_brown] = (porBrown[e.zona_brown] || 0) + 1;
+  }
+  const locById = Object.fromEntries(P.localidades.map((l) => [l.id, l]));
+
+  if (nivel === "barrio") {
+    const max = Math.max(0, ...Object.values(porLoc));
+    const cortes = escala(max || 1);
+    for (const [id, mp] of Object.entries(GEO.cells)) {
+      const n = porLoc[id] || 0; const l = locById[id]; const col = colorPara(n, cortes);
+      const lay = L.polygon(toLatLngs(mp), {
+        pane: "cells", weight: n ? 0.6 : 0.4, color: n ? "#14120f" : "rgba(232,137,26,.18)",
+        fillColor: col || "#e8891a", fillOpacity: n ? 0.82 : 0.03
+      });
+      const zb = zbLabel(l.b);
+      lay.bindTooltip(`<b>${esc(l.n)}</b><div class="s">${esc(l.p)} · ${esc(GEO.zonas[l.z]?.label || "")} · ${zb}</div><div>${n} envío${n === 1 ? "" : "s"}</div>`, { className: "tt", sticky: true });
+      lay.on("click", () => filtrarPorBarrio(l));
+      lay.addTo(layerCells); cellIndex[id] = lay;
+    }
+    pintarLeyenda(cortes, "Envíos por barrio");
+  } else if (nivel === "zona") {
+    const max = Math.max(0, ...Object.values(porZona)); const cortes = escala(max || 1);
+    for (const z of P.zonas) {
+      const n = porZona[z.id] || 0; const col = colorPara(n, cortes);
+      const lay = L.polygon(z.geom[0].map(([x, y]) => [y, x]), { pane: "cells", weight: .8, color: "#14120f", fillColor: col || "#e8891a", fillOpacity: n ? .82 : .03 });
+      lay.bindTooltip(`<b>${esc(z.label)}</b><div class="s">${STATE.full && z.precio_ml ? "ML " + fmt$(z.precio_ml) + " · " : ""}${n} envío${n === 1 ? "" : "s"}</div>`, { className: "tt", sticky: true });
+      lay.addTo(layerCells);
+    }
+    pintarLeyenda(cortes, "Envíos por zona ML");
+  } else {
+    // por zona Brown: cada barrio con el color de la acumulación de su zona Brown
+    const max = Math.max(0, ...Object.values(porBrown)); const cortes = escala(max || 1);
+    for (const [id, mp] of Object.entries(GEO.cells)) {
+      const l = locById[id]; const n = porBrown[l.b] || 0; const col = colorPara(n, cortes);
+      const lay = L.polygon(toLatLngs(mp), { pane: "cells", weight: 0, fillColor: col || "#e8891a", fillOpacity: n ? .78 : .03 });
+      lay.bindTooltip(`<b>${zbLabel(l.b)}</b><div class="s">${esc(l.n)} · ${esc(l.p)}</div><div>${n} envíos en la zona</div>`, { className: "tt", sticky: true });
+      lay.addTo(layerCells);
+    }
+    pintarLeyenda(cortes, "Envíos por zona Brown");
+  }
+
+  if ($("chkBordes").checked) {
+    for (const z of P.zonas) {
+      const lay = L.polygon(z.geom[0].map(([x, y]) => [y, x]), { pane: "borders", weight: 1.4, color: "#e8891a", opacity: .55, fill: false, interactive: false });
+      lay.addTo(layerZonas); zonaIndex[z.id] = lay;
+    }
+  }
+  // puntos (lat/lon redondeadas a ~100 m) — se dibujan sólo si vienen en el payload
+  if ($("chkPuntos").checked) {
+    for (const e of env) {
+      if (!cuenta(e) || e.p_lat == null) continue;
+      L.circleMarker([e.p_lat, e.p_lon], { pane: "pts", radius: 4, weight: 1, color: "#14120f", fillColor: "#fff", fillOpacity: .9 })
+        .bindTooltip(`<b>${esc(e.localidad || e.ciudad || "")}</b><div class="s">${new Date(e.fecha).toLocaleDateString("es-AR")} · ${ESTADOS[e.estado]?.[0] || e.estado}</div>`, { className: "tt" })
+        .on("click", () => seleccionarVenta(e.orden, true))
+        .addTo(layerPuntos);
+    }
+    layerPuntos.addTo(map);
+  } else map.removeLayer(layerPuntos);
+}
+
+function pintarLeyenda(cortes, titulo) {
+  const max = cortes[cortes.length - 1];
+  const n = cortes.length;
+  const cols = n === 1 ? [HEAT[5]] : cortes.map((_, i) => HEAT[Math.round(i / (n - 1) * 5)]);
+  $("legend").innerHTML = `<div class="t">${titulo}</div>
+    <div class="scale">${cols.map((c) => `<i style="background:${c}"></i>`).join("")}</div>
+    <div class="lbl"><span>1</span><span>${max}${n > 1 ? "+" : ""}</span></div>`;
+}
+
+// ---------------- KPIs ----------------
+function renderKpis(env) {
+  const act = env.filter(cuenta);
+  const costo = act.filter((e) => e.salio).reduce((s, e) => s + Number(e.tarifa_brown || 0), 0);
+  const barrios = new Set(act.map((e) => e.loc).filter(Boolean)).size;
+  const hoy = new Date().toDateString();
+  const hoyN = act.filter((e) => new Date(e.fecha).toDateString() === hoy).length;
+  let html = `<div class="kpi"><b>${fmtN(act.length)}</b><span>Envíos</span></div>
+    <div class="kpi"><b>${fmtN(hoyN)}</b><span>Hoy</span></div>
+    <div class="kpi"><b>${fmtN(barrios)}</b><span>Barrios</span></div>
+    <div class="kpi"><b>${fmt$(costo)}</b><span>Costo Brown</span></div>`;
+  if (STATE.full) {
+    const ventas = act.reduce((s, e) => s + Number(e.monto || 0), 0);
+    html += `<div class="kpi"><b>${fmt$(ventas)}</b><span>Ventas Flex</span></div>`;
+  }
+  $("kpis").innerHTML = html;
+}
+
+// ---------------- lista de ventas ----------------
+let filtroBarrio = null;
+function filtrarPorBarrio(l) {
+  filtroBarrio = filtroBarrio?.id === l.id ? null : l;
+  $("q").value = filtroBarrio ? l.n : "";
+  renderVentas(enviosPeriodo());
+  if (window.matchMedia("(max-width: 980px)").matches && filtroBarrio) abrirPanelMovil("pVentas");
+}
+function renderVentas(env) {
+  const q = norm($("q").value.trim()); const fe = $("fEstado").value;
+  let lista = env.filter((e) => {
+    if (fe === "activas" && !cuenta(e)) return false;
+    if (fe === "problema" && !["not_delivered", "returned"].includes(e.estado)) return false;
+    if (fe && !["activas", "problema"].includes(fe) && e.estado !== fe) return false;
+    if (filtroBarrio && norm($("q").value) === norm(filtroBarrio.n)) return e.loc === filtroBarrio.id;
+    if (!q) return true;
+    return [e.localidad, e.barrio, e.ciudad, e.partido, e.orden, e.envio, zbLabel(e.zona_brown), GEO.zonas[e.zona_ml]?.label, e.skus].some((v) => norm(v).includes(q));
+  });
+  $("ventasCount").textContent = "· " + lista.length;
+  if (!lista.length) { $("ventas").innerHTML = `<div class="empty">No hay ventas Flex con este filtro.</div>`; return; }
+  $("ventas").innerHTML = lista.map((e) => {
+    const [est, cls] = ESTADOS[e.estado] || [e.estado || "—", ""];
+    const f = new Date(e.fecha);
+    const lugar = e.localidad || e.barrio || e.ciudad || "Sin ubicar";
+    const zml = GEO.zonas[e.zona_ml]?.label || "";
+    return `<div class="venta ${selOrden === e.orden ? "sel" : ""}" data-o="${esc(e.orden)}">
+      <div class="lugar">${esc(lugar)}</div>
+      <div class="${STATE.full ? "monto" : "tar"}">${STATE.full ? fmt$(e.monto) : fmt$(e.tarifa_brown)}</div>
+      <div class="meta">
+        <span>${f.toLocaleDateString("es-AR", { day: "2-digit", month: "2-digit" })} ${f.toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" })}</span>
+        <span>${esc(e.partido || zml)}</span>
+        <span class="badge zb">${zbLabel(e.zona_brown)}</span>
+        <span class="badge ${cls}">${esc(est)}</span>
+      </div>
+      <div class="meta"><span>#${esc(e.orden)}</span>${STATE.full ? `<span>Brown ${fmt$(e.tarifa_brown)}</span>${e.skus ? `<span>SKU ${esc(e.skus)}</span>` : ""}` : ""}${e.ubic === "nombre" ? `<span title="Ubicado por nombre, sin coordenadas">≈ por nombre</span>` : ""}</div>
+    </div>`;
+  }).join("");
+  $("ventas").querySelectorAll(".venta").forEach((el) => el.addEventListener("click", () => seleccionarVenta(el.dataset.o, false)));
+}
+function seleccionarVenta(orden, desdeMapa) {
+  selOrden = orden;
+  const e = (STATE.payload.envios || []).find((x) => x.orden === orden);
+  document.querySelectorAll(".venta").forEach((el) => el.classList.toggle("sel", el.dataset.o === orden));
+  if (desdeMapa) document.querySelector(`.venta[data-o="${CSS.escape(orden)}"]`)?.scrollIntoView({ block: "nearest" });
+  if (!e) return;
+  const lay = (nivel === "barrio" && e.loc && cellIndex[e.loc]) || zonaIndex[e.zona_ml];
+  if (lay) {
+    map.fitBounds(lay.getBounds(), { maxZoom: 14, padding: [40, 40] });
+    if (nivel === "barrio" && e.loc && cellIndex[e.loc]) {
+      const c = cellIndex[e.loc]; const prev = { weight: c.options.weight, color: c.options.color };
+      c.setStyle({ weight: 3, color: "#ffffff" }); c.openTooltip(lay.getBounds().getCenter());
+      setTimeout(() => c.setStyle(prev), 2500);
+    }
+  }
+  if (window.matchMedia("(max-width: 980px)").matches) abrirPanelMovil("");
+}
+
+// ---------------- costos Brown ----------------
+function renderTarifas(env) {
+  const P = STATE.payload;
+  const act = env.filter(cuenta);
+  const porZb = {}; for (const e of act) { const k = e.zona_brown || "_"; (porZb[k] ||= { n: 0, salio: 0, costo: 0 }); porZb[k].n++; if (e.salio) { porZb[k].salio++; porZb[k].costo += Number(e.tarifa_brown || 0); } }
+  const tot = act.length || 1;
+  const barriosPorZb = {}; for (const l of P.localidades) barriosPorZb[l.b] = (barriosPorZb[l.b] || 0) + 1;
+  const tar = Object.fromEntries((P.tarifas_brown || []).map((t) => [t.zona, t]));
+  let html = "";
+  for (const z of ZB_ORDEN) {
+    const t = tar[z]; const s = porZb[z] || { n: 0, salio: 0, costo: 0 };
+    html += `<div class="tcard">
+      <div class="h"><b>${zbLabel(z)}</b><span class="tar">${t ? fmt$(t.tarifa) : "—"}</span></div>
+      <div class="sub"><span>por envío · vigente desde ${t ? new Date(t.vigente_desde + "T12:00").toLocaleDateString("es-AR") : "—"}</span><span>${fmtN(barriosPorZb[z] || 0)} barrios</span></div>
+      <div class="bar"><i style="width:${Math.round((s.n / tot) * 100)}%"></i></div>
+      <div class="sub"><span>${fmtN(s.n)} envíos en el período</span><span>Acumulado ${fmt$(s.costo)}</span></div>
+    </div>`;
+  }
+  if (porZb["_"]) html += `<p class="note">${porZb["_"].n} envío(s) sin zona Brown asignada.</p>`;
+  const tarCaba = tar["CABA"];
+  if (tarCaba && tarCaba.vigente_desde < "2026-10-01") html += `<p class="note">⚠️ CABA no tiene tarifa cargada para octubre: se usa la vigente desde ${new Date(tarCaba.vigente_desde + "T12:00").toLocaleDateString("es-AR")}.</p>`;
+
+  if (STATE.full) {
+    // brecha ML vs Brown por zona ML (solo admin)
+    const porZml = {}; for (const e of act) if (e.salio && e.zona_ml) { (porZml[e.zona_ml] ||= { n: 0, brown: 0 }); porZml[e.zona_ml].n++; porZml[e.zona_ml].brown += Number(e.tarifa_brown || 0); }
+    const filas = P.zonas.map((z) => {
+      const s = porZml[z.id] || { n: 0, brown: 0 };
+      const brownProm = s.n ? s.brown / s.n : null;
+      return { z, n: s.n, brownProm, dif: brownProm != null && z.precio_ml != null ? z.precio_ml - brownProm : null };
+    }).filter((f) => f.n > 0).sort((a, b) => b.n - a.n);
+    html += `<div class="aside-head" style="border-top:1px solid var(--line)"><h2>Precio ML vs costo Brown · solo ustedes</h2></div>
+      <table class="mini"><thead><tr><th>Zona ML</th><th class="n">Env.</th><th class="n">ML</th><th class="n">Brown</th><th class="n">Dif.</th></tr></thead><tbody>
+      ${filas.map((f) => `<tr><td>${esc(f.z.label)}</td><td class="n">${f.n}</td><td class="n">${fmt$(f.z.precio_ml)}</td><td class="n">${fmt$(f.brownProm)}</td><td class="n ${f.dif < 0 ? "neg" : "pos"}">${f.dif == null ? "—" : (f.dif > 0 ? "+" : "") + fmt$(f.dif).replace("$-", "-$")}</td></tr>`).join("") || `<tr><td colspan="5" class="empty">Sin envíos despachados en el período.</td></tr>`}
+      </tbody></table>
+      <p class="note">“ML” es el precio de envío que figura en tu configuración Flex por zona. Falta confirmar que sea lo que ML te acredita por envío (en ventas hoy figura costo de envío 0).</p>`;
+  }
+  $("tabTarifas").innerHTML = html;
+}
+
+// ---------------- árbol de barrios ----------------
+function renderArbol(env) {
+  const P = STATE.payload; const q = norm($("qb").value.trim()); const modo = $("agrupar").value;
+  const porLoc = {}; for (const e of env) if (cuenta(e) && e.loc) porLoc[e.loc] = (porLoc[e.loc] || 0) + 1;
+  const tar = Object.fromEntries((P.tarifas_brown || []).map((t) => [t.zona, t.tarifa]));
+  const max = Math.max(1, ...Object.values(porLoc)); const cortes = escala(max);
+  const grupos = {};
+  for (const l of P.localidades) {
+    if (q && !norm(l.n).includes(q) && !norm(l.p).includes(q)) continue;
+    const g = modo === "brown" ? (l.b || "_") : l.z;
+    const m = modo === "brown" ? (l.p || "—") : (l.p || "—");
+    ((grupos[g] ||= {})[m] ||= []).push(l);
+  }
+  const ordenG = modo === "brown" ? ZB_ORDEN.filter((z) => grupos[z]).concat(grupos["_"] ? ["_"] : [])
+    : Object.keys(grupos).sort((a, b) => (GEO.zonas[a]?.label || "").localeCompare(GEO.zonas[b]?.label || ""));
+  const abierto = !!q;
+  let html = "";
+  for (const g of ordenG) {
+    const munis = grupos[g]; const locs = Object.values(munis).flat();
+    const nEnv = locs.reduce((s, l) => s + (porLoc[l.id] || 0), 0);
+    const titulo = modo === "brown" ? zbLabel(g === "_" ? null : g) + (tar[g] ? ` · ${fmt$(tar[g])}` : "") : (GEO.zonas[g]?.label || g) + (STATE.full && GEO.zonas[g]?.precio_ml ? ` · ML ${fmt$(GEO.zonas[g].precio_ml)}` : "");
+    html += `<details class="g" ${abierto ? "open" : ""}><summary><span class="chev">▸</span><span class="nm">${esc(titulo)}</span><span class="ct">${Object.keys(munis).length} munic. · ${locs.length} barrios · ${nEnv} env.</span></summary>`;
+    for (const m of Object.keys(munis).sort((a, b) => a.localeCompare(b, "es"))) {
+      const ls = munis[m].sort((a, b) => (porLoc[b.id] || 0) - (porLoc[a.id] || 0) || a.n.localeCompare(b.n, "es"));
+      const nM = ls.reduce((s, l) => s + (porLoc[l.id] || 0), 0);
+      html += `<details class="m" ${abierto ? "open" : ""}><summary><span class="nm">${esc(m)}</span><span class="ct">${ls.length} · ${nM} env.</span></summary><ul class="barrios">`;
+      html += ls.map((l) => { const n = porLoc[l.id] || 0; const c = colorPara(n, cortes);
+        return `<li class="${n ? "has" : ""}" data-l="${esc(l.id)}"><span>${esc(l.n)}${modo === "ml" ? ` <span class="badge zb">${zbLabel(l.b)}</span>` : ""}</span><span class="c" style="${c ? `background:${c};color:#1b1206` : ""}">${n || "·"}</span></li>`; }).join("");
+      html += `</ul></details>`;
+    }
+    html += `</details>`;
+  }
+  $("arbol").innerHTML = html || `<div class="empty">Ningún barrio coincide.</div>`;
+  $("arbol").querySelectorAll("li[data-l]").forEach((li) => li.addEventListener("click", () => {
+    const lay = cellIndex[li.dataset.l]; const l = P.localidades.find((x) => x.id === li.dataset.l);
+    if (nivel !== "barrio") setNivel("barrio");
+    const c = cellIndex[li.dataset.l];
+    if (c) { map.fitBounds(c.getBounds(), { maxZoom: 14, padding: [40, 40] }); c.openTooltip(c.getBounds().getCenter()); }
+    if (window.matchMedia("(max-width: 980px)").matches) abrirPanelMovil("");
+  }));
+}
+
+// ---------------- accesos (admin) ----------------
+function renderAccesos() {
+  const a = STATE.accesos || [];
+  $("accLista").innerHTML = a.length ? a.map((x) => `<div class="acc">
+      <div style="flex:1"><div class="n">${esc(x.nombre)} ${x.activo ? "" : '<span class="badge bad">revocado</span>'}</div>
+      <div class="s">Creado ${new Date(x.created_at).toLocaleDateString("es-AR")} · ${x.last_used_at ? "último uso " + new Date(x.last_used_at).toLocaleString("es-AR") : "sin uso todavía"}</div></div>
+      <button class="btn ghost sm" data-id="${x.id}" data-a="${x.activo ? "revocar_acceso" : "reactivar_acceso"}">${x.activo ? "Revocar" : "Reactivar"}</button>
+    </div>`).join("") : `<div class="empty">Todavía no hay links creados.</div>`;
+  $("accLista").querySelectorAll("button[data-id]").forEach((b) => b.addEventListener("click", async () => {
+    b.disabled = true;
+    try { await fetchJSON(FN, { method: "POST", headers: { ...(await authHeaders()), "Content-Type": "application/json" }, body: JSON.stringify({ accion: b.dataset.a, id: Number(b.dataset.id) }) }); await cargar(); renderAccesos(); }
+    catch (e) { toast(e.message); b.disabled = false; }
+  }));
+}
+$("btnAccesos").addEventListener("click", () => { $("accNuevo").innerHTML = ""; renderAccesos(); $("modalAccesos").classList.remove("hidden"); });
+$("cerrarAccesos").addEventListener("click", () => $("modalAccesos").classList.add("hidden"));
+$("accCrear").addEventListener("click", async () => {
+  const nombre = $("accNombre").value.trim(); if (!nombre) { toast("Poné un nombre para identificar el link."); return; }
+  $("accCrear").disabled = true;
+  try {
+    const j = await fetchJSON(FN, { method: "POST", headers: { ...(await authHeaders()), "Content-Type": "application/json" }, body: JSON.stringify({ accion: "crear_acceso", nombre }) });
+    const link = location.origin + location.pathname + "?t=" + j.token;
+    $("accNuevo").innerHTML = `<p class="note" style="margin:10px 0 0">Copiá este link ahora: <b>no se vuelve a mostrar</b>.</p><div class="linkbox" id="linkNuevo">${esc(link)}</div><button class="btn sm" id="copiarLink">Copiar link</button>`;
+    $("copiarLink").addEventListener("click", async () => { try { await navigator.clipboard.writeText(link); toast("Link copiado"); } catch { toast("Seleccioná y copiá el link a mano"); } });
+    $("accNombre").value = "";
+    await cargar(); renderAccesos();
+  } catch (e) { toast(e.message); }
+  finally { $("accCrear").disabled = false; }
+});
+
+// ---------------- UI wiring ----------------
+function setNivel(v) {
+  nivel = v; document.querySelectorAll("#segNivel button").forEach((b) => b.classList.toggle("on", b.dataset.v === v));
+  renderMapa(enviosPeriodo());
+}
+document.querySelectorAll("#segNivel button").forEach((b) => b.addEventListener("click", () => setNivel(b.dataset.v)));
+$("chkPuntos").addEventListener("change", () => renderMapa(enviosPeriodo()));
+$("chkBordes").addEventListener("change", () => renderMapa(enviosPeriodo()));
+$("periodo").addEventListener("change", () => { try { localStorage.setItem("flexmapa.periodo", $("periodo").value); } catch {} render(); });
+$("q").addEventListener("input", () => { filtroBarrio = null; renderVentas(enviosPeriodo()); });
+$("fEstado").addEventListener("change", () => renderVentas(enviosPeriodo()));
+$("qb").addEventListener("input", () => renderArbol(enviosPeriodo()));
+$("agrupar").addEventListener("change", () => renderArbol(enviosPeriodo()));
+$("btnRefresh").addEventListener("click", cargar);
+$("btnSalir").addEventListener("click", async () => { await sb.auth.signOut(); location.reload(); });
+document.querySelectorAll(".tabs button").forEach((b) => b.addEventListener("click", () => {
+  document.querySelectorAll(".tabs button").forEach((x) => x.classList.toggle("on", x === b));
+  $("tabTarifas").classList.toggle("hidden", b.dataset.tab !== "tarifas");
+  $("tabBarrios").classList.toggle("hidden", b.dataset.tab !== "barrios");
+}));
+function abrirPanelMovil(id) {
+  ["pVentas", "pInfo"].forEach((p) => $(p).classList.toggle("mshow", p === id));
+  document.querySelectorAll("#mtabs button").forEach((b) => b.classList.toggle("on", b.dataset.m === id));
+  setTimeout(() => map && map.invalidateSize(), 50);
+}
+document.querySelectorAll("#mtabs button").forEach((b) => b.addEventListener("click", () => abrirPanelMovil(b.dataset.m)));
+
+function toast(msg) {
+  const t = document.createElement("div"); t.className = "toast"; t.textContent = msg; document.body.appendChild(t);
+  setTimeout(() => t.remove(), 3500);
+}
+
+// ---------------- login / arranque ----------------
+function mostrarGate(msg) {
+  $("app").classList.add("hidden"); $("gate").classList.remove("hidden");
+  if (msg) { $("gateMsg").textContent = msg; $("gateForm").classList.add("hidden"); }
+}
+async function hacerLogin() {
+  const email = $("gateEmail").value.trim(), password = $("gatePass").value;
+  $("gateError").textContent = "";
+  if (!email || !password) { $("gateError").textContent = "Completá email y contraseña."; return; }
+  $("gateBtn").disabled = true; $("gateBtn").textContent = "Ingresando…";
+  const { error } = await sb.auth.signInWithPassword({ email, password });
+  if (error) { $("gateError").textContent = "No se pudo iniciar sesión. Revisá tus datos."; $("gateBtn").disabled = false; $("gateBtn").textContent = "Ingresar"; return; }
+  arrancar();
+}
+$("gateBtn").addEventListener("click", hacerLogin);
+$("gatePass").addEventListener("keydown", (e) => { if (e.key === "Enter") hacerLogin(); });
+
+async function arrancar() {
+  try { const p = localStorage.getItem("flexmapa.periodo"); if (p) $("periodo").value = p; } catch {}
+  if (!TOKEN) {
+    const { data } = await sb.auth.getSession();
+    if (!data.session) { mostrarGate(); return; }
+  }
+  $("gate").classList.add("hidden"); $("app").classList.remove("hidden");
+  await cargar();
+  setTimeout(() => map && map.invalidateSize(), 100);
+}
+setInterval(() => { if (!document.hidden && STATE.payload) cargar(); }, 5 * 60 * 1000);
+arrancar();
+</script>
+</body>
+</html>
